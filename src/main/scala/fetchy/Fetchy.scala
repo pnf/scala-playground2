@@ -134,10 +134,6 @@ object Test extends App {
   import cats.syntax.semigroupal._
   import cats._
 
-  import cats.syntax.apply._
-  implicit object FetchTupleLifter extends TupleLifter[Fetch] {
-    override def tupleLift[A, B](t: (Fetch[A], Fetch[B])): Fetch[(A, B)] = t.tupled
-  }
 
   def authorByPostId(id: Int) = for {
     post ← getPost(id)
@@ -216,15 +212,26 @@ object Test extends App {
           }))
 
 
-      def getAP3(id: Int) = {
-        println("et voila")
-        for {
-          p ← getPost(id)
-          a ← getUser(p.author)
-          q ← getQuality(p.content)
-          p ← getPost(1)
-        } yield (p, a, q)
+      object Necessary {
+
+        import cats.syntax.apply._
+
+        implicit object FetchTupleLifter extends TupleLifter[Fetch] {
+          override def tupleLift[A, B](t: (Fetch[A], Fetch[B])): Fetch[(A, B)] = t.tupled
+        }
+
+        def getAP3(id: Int) = {
+          println("et voila")
+          for {
+            p ← getPost(id)
+            a ← getUser(p.author)
+            q ← getQuality(p.content)
+            p ← getPost(1)
+          } yield (p, a, q)
+        }
+
       }
+      def getAP3(id: Int) = Necessary.getAP3(id)
 
 
       /*
