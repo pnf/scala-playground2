@@ -1,16 +1,22 @@
 package fetchy
 
+import cats.Semigroupal
 import fetch.Query
 import cats.data.NonEmptyList
 import cats.data.NonEmptyList
+import cats.free.Free
 import cats.instances.list._
 import fetch._
 
 import scala.concurrent._
 import scala.concurrent.duration._
-
+import applicativish.TupleLifter
 
 object Fetchy {
+
+
+  val blah = 11
+  // https://www.scala-exercises.org/fetch/concurrency_monads
 
   type UserId = Int
   case class User(id: UserId, username: String)
@@ -71,8 +77,25 @@ object Fetchy {
     }
   }
 
+  implicit object QualitySource extends DataSource[String,Int] {
+    override def name = "Quality"
+
+    override def fetchOne(id: String) = {
+      Query.sync({
+        latency(Some(id.length), "One quality")
+      })
+    }
+
+    override def fetchMany(ids: NonEmptyList[String]): Query[Map[String, Int]] = {
+      Query.sync({
+        latency(ids.map(s ⇒ (s,s.length)).toList.toMap, "Many qualities")
+      })
+    }
+  }
+
   def getPost(id: PostId): Fetch[Post] = Fetch(id)
   def getAuthor(p: Post): Fetch[User] = Fetch(p.author)
+  def getQuality(s: String): Fetch[Int] = Fetch(s)
 
   type PostTopic = String
 
@@ -95,7 +118,9 @@ object Fetchy {
 
   def getPostTopic(post: Post): Fetch[PostTopic] = Fetch(post)
 
+
 }
+
 
 object Test extends App {
   import Fetchy._
@@ -105,9 +130,19 @@ object Test extends App {
   import fetch.syntax._
   import cats.instances.list._
   import cats.syntax.traverse._
-  import cats.syntax.cartesian._ // for |@|
+  import cats.syntax.apply._
+  import cats.syntax.semigroupal._
+  import cats._
 
-  // bummer that we don't have applicative for
+  import cats.syntax.apply._
+  implicit object FetchTupleLifter extends TupleLifter[Fetch] {
+    override def tupleLift[A, B](t: (Fetch[A], Fetch[B])): Fetch[(A, B)] = t.tupled
+  }
+
+  def authorByPostId(id: Int) = for {
+    post ← getPost(id)
+    author ← getAuthor(post)
+  }  yield author
 
   val postsByAuthor: Fetch[List[Post]] = for {
     posts <- List(1, 2).traverse(getPost)
@@ -115,14 +150,13 @@ object Test extends App {
     ordered = (posts zip authors).sortBy({ case (_, author) => author.username }).map(_._1)
   } yield ordered
 
-
   val postTopics: Fetch[Map[PostTopic, Int]] = for {
     posts <- List(2, 3).traverse(getPost)
     topics <- posts.traverse(getPostTopic)
     countByTopic = (posts zip topics).groupBy(_._2).mapValues(_.size)
   } yield countByTopic
 
-  val homePage = (postsByAuthor |@| postTopics).tupled
+  val homePage = (postsByAuthor, postTopics).tupled // (postsByAuthor |@| postTopics).tupled
 
   {
     import ExecutionContext.Implicits.global
@@ -133,15 +167,95 @@ object Test extends App {
   }
 
   {
+    println("monix")
+
     import monix.eval.Task
     import monix.execution.Scheduler
     import fetch.monixTask.implicits._
+
     val scheduler = Scheduler.Implicits.global
 
-    val task = Fetch.run[Task](homePage)
+    {
+      val task = Fetch.run[Task](homePage)
+      val res = Await.result(task.runAsync(scheduler), Duration.Inf)
+      println(res)
+    }
+    {
 
-    val res = Await.result(task.runAsync(scheduler), Duration.Inf)
-    println(res)
+
+      class bogusWithFilter[A](self: Fetch[A]) {
+        def withFilter(p: A ⇒ Boolean) = new WithFilter(p)
+        class WithFilter(p: A => Boolean) {
+          def map[B](f: A => B): Fetch[B] = self.map {a ⇒
+            if(!p(a)) throw new IllegalStateException
+            else f(a)
+          }
+          def flatMap[B](f: A => Fetch[B]): Fetch[B] = self.flatMap {a ⇒
+            if(!p(a)) throw new IllegalStateException
+            else f(a)
+          }
+          def foreach[U](f: A => U): Unit = ???
+          def withFilter(q: A => Boolean): WithFilter = new WithFilter(x => p(x) && q(x))
+        }
+      }
+
+
+      def getAP(id: Int) = for {
+        p ← getPost(id)
+        (a,q) ← (getUser(p.author),getQuality(p.content)).tupled
+        q ← getQuality(p.content)
+      } yield (p,a,q)
+
+      def getAP2(id: Int)=
+        Fetchy.getPost(id)
+          .flatMap((p: Post) =>
+            catsSyntaxSemigroupal(Fetchy.getUser(p.author))(fetch.fetchApplicative)
+              .product(Fetchy.getQuality(p.content))
+              .flatMap({
+                case (a, q) ⇒ Fetchy.getQuality(p.content).map((q: Int) => Tuple3.apply(p, a, q))
+          }))
+
+
+      def getAP3(id: Int) = {
+        println("et voila")
+        for {
+          p ← getPost(id)
+          a ← getUser(p.author)
+          q ← getQuality(p.content)
+          p ← getPost(1)
+        } yield (p, a, q)
+      }
+
+
+      /*
+      def print[A](free: Fetch[A]): String = free match {
+        case Free.Pure(p)     => s"Pure($p)"
+        case Free.Suspend(fa) => s"Suspend($fa)"
+        case Free.FlatMapped(free2, _) =>
+          s"""FlatMapped(
+             |  ${print(free2)},
+             |  <fb => Free>)""".stripMargin
+      }
+
+*/
+
+
+      def runny[T](f: Fetch[T]) = {
+        val task = Fetch.run[Task](f)
+        val res = Await.result(task.runAsync(scheduler), Duration.Inf)
+        println(res)
+      }
+
+      val l = List(1,2,3)
+      runny(l.traverse(getAP))
+      runny(l.traverse(getAP2))
+      runny(l.traverse(getAP3))
+
+    }
+
   }
 
 }
+
+
+
