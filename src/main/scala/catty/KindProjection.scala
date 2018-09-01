@@ -1,0 +1,5 @@
+package catty
+
+object KIndProjection {
+
+}

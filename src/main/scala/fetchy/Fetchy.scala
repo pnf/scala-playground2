@@ -20,6 +20,8 @@ object Fetchy {
 
   type UserId = Int
   case class User(id: UserId, username: String)
+  type Quality = Int
+  type Popularity = Int
 
   def latency[A](result: A, msg: String) = {
     val id = Thread.currentThread.getId
@@ -77,15 +79,13 @@ object Fetchy {
     }
   }
 
-  implicit object QualitySource extends DataSource[String,Int] {
+  implicit object QualitySource extends DataSource[String,Quality] {
     override def name = "Quality"
-
     override def fetchOne(id: String) = {
       Query.sync({
         latency(Some(id.length), "One quality")
       })
     }
-
     override def fetchMany(ids: NonEmptyList[String]): Query[Map[String, Int]] = {
       Query.sync({
         latency(ids.map(s ⇒ (s,s.length)).toList.toMap, "Many qualities")
@@ -93,9 +93,25 @@ object Fetchy {
     }
   }
 
+  implicit object PopularitySource extends DataSource[Post,Popularity] {
+    override def name = "Popularity"
+    override def fetchOne(p: Post) = {
+      Query.sync({
+        latency(Some(p.id*10), "One popularity")
+      })
+    }
+    override def fetchMany(ids: NonEmptyList[Post]): Query[Map[Post, Int]] = {
+      Query.sync({
+        latency(ids.map(p ⇒ (p,p.id*10)).toList.toMap, "Many popularities")
+      })
+    }
+  }
+
+
   def getPost(id: PostId): Fetch[Post] = Fetch(id)
   def getAuthor(p: Post): Fetch[User] = Fetch(p.author)
-  def getQuality(s: String): Fetch[Int] = Fetch(s)
+  def getQuality(s: String): Fetch[Quality] = Fetch(s)
+  def getPopularity(p: Post): Fetch[Quality] = Fetch(p)
 
   type PostTopic = String
 
@@ -226,8 +242,8 @@ object Test extends App {
             p ← getPost(id)
             a ← getUser(p.author)
             q ← getQuality(p.content)
-            p ← getPost(1)
-          } yield (p, a, q)
+            p2 ← getPopularity(p)
+          } yield (p, a, q, p2)
         }
 
       }
