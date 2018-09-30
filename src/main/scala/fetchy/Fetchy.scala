@@ -1,8 +1,8 @@
 package fetchy
 
+import applicator.TupleLiftable
 import cats.Semigroupal
 import fetch.Query
-import cats.data.NonEmptyList
 import cats.data.NonEmptyList
 import cats.free.Free
 import cats.instances.list._
@@ -10,7 +10,14 @@ import fetch._
 
 import scala.concurrent._
 import scala.concurrent.duration._
-import applicativish.TupleLifter
+import applicator.TupleLiftable._
+
+object FetchyImplicits {
+  import cats.syntax.apply._
+  implicit object FetchTupleLifter extends TupleLiftable[Fetch] {
+    override def tupleLift[A, B](t: (Fetch[A], Fetch[B])): Fetch[(A, B)] = t.tupled
+  }
+}
 
 object Fetchy {
 
@@ -211,7 +218,6 @@ object Test extends App {
         }
       }
 
-
       def getAP(id: Int) = for {
         p ← getPost(id)
         (a,q) ← (getUser(p.author),getQuality(p.content)).tupled
@@ -228,16 +234,12 @@ object Test extends App {
           }))
 
 
-      object Necessary {
 
-        import cats.syntax.apply._
+      import FetchyImplicits._
 
-        implicit object FetchTupleLifter extends TupleLifter[Fetch] {
-          override def tupleLift[A, B](t: (Fetch[A], Fetch[B])): Fetch[(A, B)] = t.tupled
-        }
-
-        def getAP3(id: Int) = {
-          println("et voila")
+      def getAP3(id: Int): Free[FetchOp, (Post, User, Quality, Quality)] = {
+        liftTuples {
+        println("et voila")
           for {
             p ← getPost(id)
             a ← getUser(p.author)
@@ -245,9 +247,20 @@ object Test extends App {
             p2 ← getPopularity(p)
           } yield (p, a, q, p2)
         }
-
       }
-      def getAP3(id: Int) = Necessary.getAP3(id)
+
+        /*
+    ~~> [12] Many Posts NonEmptyList(1, 2, 3)
+    <~~ [12] Many Posts NonEmptyList(1, 2, 3)
+    ~~> [12] Many popularities
+    ~~> [13] Many qualities
+    ~~> [15] Many Users NonEmptyList(2, 3, 4)
+    <~~ [12] Many popularities
+    <~~ [13] Many qualities
+    <~~ [15] Many Users NonEmptyList(2, 3, 4)
+           */
+
+
 
 
       /*
