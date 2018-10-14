@@ -4,7 +4,15 @@ import cats._
 import cats.implicits._
 import org.scalatest._
 
+object Blecch {
 
+  import cats.instances.option._ // for Semigroupal
+  import cats.syntax.apply._     // for tupled and mapN”
+
+  (Option(1),Option(2)).tupled
+
+
+}
 
 class Catty extends FlatSpec with Matchers {
 

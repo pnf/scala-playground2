@@ -1,279 +1,200 @@
 package fetchy
 
-import applicator.TupleLiftable
-import cats.Semigroupal
-import fetch.Query
+import applicator.LiftFetchTuples
 import cats.data.NonEmptyList
-import cats.free.Free
+import cats.effect.ConcurrentEffect
 import cats.instances.list._
+import cats.effect._
+import cats.temp.par._
+//import cats.instances.list._
+import cats.syntax.all._
 import fetch._
+import cats.syntax.all._
+import cats.syntax.apply._
+import scala.concurrent.ExecutionContext
 
-import scala.concurrent._
-import scala.concurrent.duration._
-import applicator.LiftTuples._
+import fetch.syntax._
 
-object FetchyImplicits {
-  import cats.syntax.apply._
-  implicit object FetchTupleLifter extends TupleLiftable[Fetch] {
-    override def tupleLift[A, B](t: (Fetch[A], Fetch[B])): Fetch[(A, B)] = t.tupled
-  }
-}
 
 object Fetchy {
 
 
-  val blah = 21
+  val blah = 23
   // https://www.scala-exercises.org/fetch/concurrency_monads
 
-  type UserId = Int
-  case class User(id: UserId, username: String)
+  type AuthorId = Int
+
+  case class Author(id: AuthorId, Authorname: String)
+
   type Quality = Int
   type Popularity = Int
 
-  def latency[A](result: A, msg: String) = {
+  def latency[F[_] : ConcurrentEffect : Par, A](result: A, msg: String) = {
     val id = Thread.currentThread.getId
-    println(s"~~> [$id] $msg")
-    Thread.sleep(100)
-    println(s"<~~ [$id] $msg")
-    result
+    Sync[F].delay(println(s"Requesting [tid=$id] $msg")) >>
+      Sync[F].delay(Thread.sleep(100)) >>
+      Sync[F].delay(println(s"Receiving [tid=$id] $msg")) >>
+      Sync[F].pure(result)
+
   }
 
-  val userDatabase: Map[UserId, User] = Map(
-    1 -> User(1, "@one"),
-    2 -> User(2, "@two"),
-    3 -> User(3, "@three"),
-    4 -> User(4, "@four")
-  )
 
-  implicit object UserSource extends DataSource[UserId, User]{
-    override def name = "User"
+  implicit object AuthorSource extends DataSource[AuthorId, Author] {
+    private val AuthorDatabase: Map[AuthorId, Author] = Map(
+      1 -> Author(1, "@one"),
+      2 -> Author(2, "@two"),
+      3 -> Author(3, "@three"),
+      4 -> Author(4, "@four")
+    )
 
-    override def fetchOne(id: UserId): Query[Option[User]] = {
-      Query.sync({
-        latency(userDatabase.get(id), s"One User $id")
-      })
-    }
-    override def fetchMany(ids: NonEmptyList[UserId]): Query[Map[UserId, User]] = {
-      Query.sync({
-        latency(userDatabase.filterKeys(ids.toList.contains), s"Many Users $ids")
-      })
-    }
+    override def name = "Author"
+
+    override def fetch[F[_] : ConcurrentEffect : Par](id: AuthorId) =
+      latency(AuthorDatabase.get(id), "One Author id")
+
+    override def batch[F[_] : ConcurrentEffect : Par](ids: NonEmptyList[Int]) =
+      latency(AuthorDatabase.filterKeys(ids.toList.contains), s"${ids.size} Authors")
   }
-  def getUser(id: UserId): Fetch[User] = Fetch(id) // or, more explicitly: Fetch(id)(UserSource)
+  def getAuthor[F[_]: ConcurrentEffect : Par](id: AuthorId): Fetch[F, Author] = Fetch(id, AuthorSource)
+
+  /*
+  def fetch[F[_] : ConcurrentEffect : Par](id: I): F[Option[A]]
+  def batch[F[_] : ConcurrentEffect : Par](ids: NonEmptyList[I]): F[Map[I, A]] =
+*/
 
   type PostId = Int
-  case class Post(id: PostId, author: UserId, content: String)
 
+  case class Post(id: PostId, author: AuthorId, content: String)
 
-  val postDatabase: Map[PostId, Post] = Map(
-    1 -> Post(1, 2, "An article"),
-    2 -> Post(2, 3, "Another article"),
-    3 -> Post(3, 4, "Yet another article")
-  )
-
-  implicit object PostSource extends DataSource[PostId, Post]{
+  implicit object PostSource extends DataSource[PostId, Post] {
     override def name = "Post"
 
-    override def fetchOne(id: PostId): Query[Option[Post]] = {
-      Query.sync({
-        latency(postDatabase.get(id), s"One Post $id")
-      })
-    }
-    override def fetchMany(ids: NonEmptyList[PostId]): Query[Map[PostId, Post]] = {
-      Query.sync({
-        latency(postDatabase.filterKeys(ids.toList.contains), s"Many Posts $ids")
-      })
-    }
-  }
+    private val postDatabase: Map[PostId, Post] = Map(
+      1 -> Post(1, 2, "An article"),
+      2 -> Post(2, 3, "Another article"),
+      3 -> Post(3, 4, "Yet another article")
+    )
 
-  implicit object QualitySource extends DataSource[String,Quality] {
+    override def fetch[F[_] : ConcurrentEffect : Par](id: PostId) =
+      latency(postDatabase.get(id), "One post request")
+
+    override def batch[F[_] : ConcurrentEffect : Par](ids: NonEmptyList[PostId]) =
+      latency(postDatabase.filterKeys(ids.toList.contains), s"${ids.size} post requests")
+  }
+  def getPost[F[_] : ConcurrentEffect: Par](id: PostId): Fetch[F, Post] = Fetch(id, PostSource)
+
+  implicit object QualitySource extends DataSource[String, Quality] {
     override def name = "Quality"
-    override def fetchOne(id: String) = {
-      Query.sync({
-        latency(Some(id.length), "One quality")
-      })
-    }
-    override def fetchMany(ids: NonEmptyList[String]): Query[Map[String, Int]] = {
-      Query.sync({
-        latency(ids.map(s ⇒ (s,s.length)).toList.toMap, "Many qualities")
-      })
-    }
-  }
 
-  implicit object PopularitySource extends DataSource[Post,Popularity] {
+    override def fetch[F[_] : ConcurrentEffect : Par](text: String): F[Option[Quality]] =
+      latency(Some(text.length), "One quality request")
+
+    override def batch[F[_] : ConcurrentEffect : Par](texts: NonEmptyList[String]): F[Map[String, Quality]] =
+      latency(texts.map(s ⇒ (s, s.length)).toList.toMap, s"${texts.size} qualities")
+  }
+  def getQuality[F[_] : ConcurrentEffect: Par](content: String): Fetch[F, Quality] = Fetch(content, QualitySource)
+
+  implicit object PopularitySource extends DataSource[Post, Popularity] {
     override def name = "Popularity"
-    override def fetchOne(p: Post) = {
-      Query.sync({
-        latency(Some(p.id*10), "One popularity")
-      })
-    }
-    override def fetchMany(ids: NonEmptyList[Post]): Query[Map[Post, Int]] = {
-      Query.sync({
-        latency(ids.map(p ⇒ (p,p.id*10)).toList.toMap, "Many popularities")
-      })
-    }
+
+    override def fetch[F[_] : ConcurrentEffect : Par](p: Post): F[Option[Popularity]] =
+      latency(Some(p.id % 3), "One popularity request")
+
+    override def batch[F[_] : ConcurrentEffect : Par](ps: NonEmptyList[Post]): F[Map[Post, Popularity]] =
+      latency(ps.map(p ⇒ (p, p.id % 3)).toList.toMap, s"${ps.size} popularity requests")
   }
-
-
-  def getPost(id: PostId): Fetch[Post] = Fetch(id)
-  def getAuthor(p: Post): Fetch[User] = Fetch(p.author)
-  def getQuality(s: String): Fetch[Quality] = Fetch(s)
-  def getPopularity(p: Post): Fetch[Quality] = Fetch(p)
+  def getPopularity[F[_] : ConcurrentEffect: Par](p: Post): Fetch[F, Popularity] = Fetch(p, PopularitySource)
 
   type PostTopic = String
 
-  implicit object PostTopicSource extends DataSource[Post, PostTopic]{
+  implicit object PostTopicSource extends DataSource[Post, PostTopic] {
     override def name = "Post topic"
 
-    override def fetchOne(id: Post): Query[Option[PostTopic]] = {
-      Query.sync({
-        val topic = if (id.id % 2 == 0) "monad" else "applicative"
-        latency(Option(topic), s"One Post Topic $id")
-      })
-    }
-    override def fetchMany(ids: NonEmptyList[Post]): Query[Map[Post, PostTopic]] = {
-      Query.sync({
-        val result = ids.toList.map(id => (id, if (id.id % 2 == 0) "monad" else "applicative")).toMap
-        latency(result, s"Many Post Topics $ids")
-      })
-    }
+    private def topic(p: Post) = if (p.id % 2 == 0) "monad" else "applicative"
+
+    override def fetch[F[_] : ConcurrentEffect : Par](p: Post) =
+      latency(Some(topic(p)), "One topic request")
+
+    override def batch[F[_] : ConcurrentEffect : Par](ps: NonEmptyList[Post]) =
+      latency(ps.map(p ⇒ (p, topic(p))).toList.toMap, "Many topic requests")
   }
-
-  def getPostTopic(post: Post): Fetch[PostTopic] = Fetch(post)
-
+  def getTopic[F[_] : ConcurrentEffect: Par](p: Post): Fetch[F, PostTopic] = Fetch(p, PostTopicSource)
 
 }
 
 
 object Test extends App {
+
   import Fetchy._
   import cats.Id
-  import fetch.unsafe.implicits._
-  import fetch.implicits._
   import fetch.syntax._
   import cats.instances.list._
   import cats.syntax.traverse._
   import cats.syntax.apply._
   import cats.syntax.semigroupal._
   import cats._
+  import fetch._
 
 
-  def authorByPostId(id: Int) = for {
-    post ← getPost(id)
-    author ← getAuthor(post)
-  }  yield author
+  def authorByPostId[F[_] : ConcurrentEffect : Par](id: PostId): Fetch[F, Author] = for {
+    post: Post ← getPost(id)
+    author: Author ← getAuthor(post.author)
+  } yield author
 
-  val postsByAuthor: Fetch[List[Post]] = for {
-    posts <- List(1, 2).traverse(getPost)
-    authors <- posts.traverse(getAuthor)
-    ordered = (posts zip authors).sortBy({ case (_, author) => author.username }).map(_._1)
+  def postsByAuthor[F[_] : ConcurrentEffect : Par : ContextShift]: Fetch[F, List[Post]] = for {
+    posts: List[Post] <- List(1, 2).traverse(getPost(_))
+    authors: List[Author] <- posts.traverse(p ⇒ getAuthor(p.author))
+    ordered = (posts zip authors).sortBy({ case (_, author) => author.Authorname }).map(_._1)
   } yield ordered
 
-  val postTopics: Fetch[Map[PostTopic, Int]] = for {
-    posts <- List(2, 3).traverse(getPost)
-    topics <- posts.traverse(getPostTopic)
+  def postTopics[F[_] : ConcurrentEffect : Par]: Fetch[F, Map[PostTopic, Int]] = for {
+    posts: List[Post] <- List(2, 3).traverse(getPost(_))
+    topics: List[PostTopic] <- posts.traverse(getTopic(_))
     countByTopic = (posts zip topics).groupBy(_._2).mapValues(_.size)
   } yield countByTopic
 
-  val homePage = (postsByAuthor, postTopics).tupled // (postsByAuthor |@| postTopics).tupled
+  def homePage[F[_] : ConcurrentEffect : Par : ContextShift] = (postsByAuthor, postTopics).tupled // (postsByAuthor |@| postTopics).tupled
 
-  {
-    import ExecutionContext.Implicits.global
 
-    val res = Await.result(Fetch.run[Future](homePage), Duration.Inf)
+  def getAP[F[_] : ConcurrentEffect : Par](id: PostId): Fetch[F, (Post, Author, Quality)] = for {
+    p: Post ← getPost(id)
+    a: Author ← getAuthor(p.author)
+    q: Quality ← getQuality(p.content)
+  } yield (p, a, q)
 
-    println(res)
+  def getAPx[F[_] : ConcurrentEffect: Par] = List(1,2,3).traverse(getAP(_))
+
+
+  def getAP2[F[_] : ConcurrentEffect: Par](id: PostId): Fetch[F, (Post, Author, Quality)] = {
+    LiftFetchTuples {
+      println("et voila")
+      for {
+        p: Post ← getPost(id)
+        a: Author ← getAuthor(p.id)
+        q: Quality ← getQuality(p.content)
+      } yield (p, a, q)
+    }
   }
 
+
+  def getAP2x[F[_] : ConcurrentEffect: Par] = List(1,2,3).traverse(getAP2(_))
+
+
+  import scala.concurrent.duration._
+
   {
-    println("monix")
+    import java.util.concurrent._
 
-    import monix.eval.Task
-    import monix.execution.Scheduler
-    import fetch.monixTask.implicits._
+    val executor = new ScheduledThreadPoolExecutor(4)
+    val executionContext: ExecutionContext = ExecutionContext.fromExecutor(executor)
 
-    val scheduler = Scheduler.Implicits.global
+    implicit val timer: Timer[IO] = IO.timer(executionContext)
+    implicit val cs: ContextShift[IO] = IO.contextShift(executionContext)
 
-    {
-      val task = Fetch.run[Task](homePage)
-      val res = Await.result(task.runAsync(scheduler), Duration.Inf)
-      println(res)
-    }
-    {
+    println("homepage\n" + Fetch.run[IO](homePage).unsafeRunTimed(5.seconds))
+    println("APx\n" + Fetch.run[IO](getAPx).unsafeRunTimed(5.seconds))
+    println("AP2x\n" + Fetch.run[IO](getAP2x).unsafeRunTimed(5.seconds))
 
-
-      def getAP(id: Int) = for {
-        p ← getPost(id)
-        (a,q) ← (getUser(p.author),getQuality(p.content)).tupled
-        q ← getQuality(p.content)
-      } yield (p,a,q)
-
-      def getAP2(id: Int)=
-        Fetchy.getPost(id)
-          .flatMap((p: Post) =>
-            catsSyntaxSemigroupal(Fetchy.getUser(p.author))(fetch.fetchApplicative)
-              .product(Fetchy.getQuality(p.content))
-              .flatMap({
-                case (a, q) ⇒ Fetchy.getQuality(p.content).map((q: Int) => Tuple3.apply(p, a, q))
-          }))
-
-
-
-      import FetchyImplicits._
-      def getAP3(id: Int): Free[FetchOp, (Post, User, Quality, Quality)] = {
-        liftTuples {
-        println("et voila")
-          for {
-            p ← getPost(id)
-            a ← getUser(p.author)
-            q ← getQuality(p.content)
-            p2 ← getPopularity(p)
-          } yield (p, a, q, p2)
-        }
-      }
-        /*
-    ~~> [12] Many Posts NonEmptyList(1, 2, 3)
-    <~~ [12] Many Posts NonEmptyList(1, 2, 3)
-    ~~> [12] Many popularities
-    ~~> [13] Many qualities
-    ~~> [15] Many Users NonEmptyList(2, 3, 4)
-    <~~ [12] Many popularities
-    <~~ [13] Many qualities
-    <~~ [15] Many Users NonEmptyList(2, 3, 4)
-           */
-
-
-
-
-      /*
-      def print[A](free: Fetch[A]): String = free match {
-        case Free.Pure(p)     => s"Pure($p)"
-        case Free.Suspend(fa) => s"Suspend($fa)"
-        case Free.FlatMapped(free2, _) =>
-          s"""FlatMapped(
-             |  ${print(free2)},
-             |  <fb => Free>)""".stripMargin
-      }
-
-*/
-
-
-      def runny[T](f: Fetch[T]) = {
-        val task = Fetch.run[Task](f)
-        val res = Await.result(task.runAsync(scheduler), Duration.Inf)
-        println(res)
-      }
-
-      val l = List(1,2,3)
-      runny(l.traverse(getAP))
-      runny(l.traverse(getAP2))
-      runny(l.traverse(getAP3))
-
-    }
 
   }
-
 }
-
-
-
