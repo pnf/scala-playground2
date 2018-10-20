@@ -19,7 +19,7 @@ object LiftFetchTuples {
 
   def apply[M[_], T](expr: Fetch[M,T])(implicit semigroupal: Semigroupal[Fetch[M, ?]], invariant: Invariant[Fetch[M,?]]): Fetch[M,T] =  macro liftTuplesImpl[M, T]
 
-  def liftTuplesImpl[M[_], T](c: Context)(expr: c.Tree)( semigroupal: c.Tree,  invariant: c.Tree)(implicit M: c.WeakTypeTag[M[_]], T:c.WeakTypeTag[T]) = {
+  def liftTuplesImpl[M[_], T](c: Context)(expr: c.Tree)( semigroupal: c.Tree,  invariant: c.Tree) = {
 
     import c.universe._
 
@@ -41,7 +41,7 @@ object LiftFetchTuples {
           //   }
           // as long as wm does not incorporate v.
           //
-          // This is done recurmively, so the inner wm.mapOrFlatMap may be the result of prior
+          // This is done recursively, so the inner wm.mapOrFlatMap may be the result of prior
           // lifting.  For example,
           //   for (v <- vm; w <- wm; x <- xm) yield expr
           // might result in
@@ -88,7 +88,6 @@ cats.syntax.`package`.all.toFunctorOps[[A]fetch.Fetch[F,A], (fetchy.Fetchy.Autho
     }))
 
  */
-
           case Apply(TypeApply(Select(vx, TermName("flatMap")), outerMethTypeParam),
           (oldClosure@Function(vValDef :: Nil,
           PossiblyNestedMap(Apply(TypeApply(Select(wx, innerMeth), innerMethTypeParam),
@@ -123,26 +122,12 @@ cats.syntax.`package`.all.toFunctorOps[[A]fetch.Fetch[F,A], (fetchy.Fetchy.Autho
 
               val transformedExpr = transform(expr)
 
-              //              val vt: Type = vm.tpe.typeArgs.head
-              //       val wt: Type = wm.tpe.typeArgs.head
-
-              val vc = oldClosure
-              val wc = oldInnerClosure
-
-              val vt = vc.vparams.head.tpt.tpe
-              val wt = wc.vparams.head.tpt.tpe
-
-              // tupleLift[V,W]((wm,vm))
-              //              val newQual = q"$lifter.tupleLift[$vt,$wt](($vm,$wm))" //
-              // val newQual = q"($vm,$wm).tupled" //
-              val blah = internal.reificationSupport.freshTermName("blah$")
-
-              //
-
 
               val newQual = q"_root_.cats.Semigroupal.tuple2($vm, $wm)($semigroupal, $invariant)"
 
               // Function parameter of type (V,W) for new closure
+              val vt = oldClosure.vparams.head.tpt.tpe
+              val wt = oldInnerClosure.vparams.head.tpt.tpe
               val tupleOfXYtt: Tree = tq"($vt,$wt)"
               val vwArgName = internal.reificationSupport.freshTermName("x$")
               val vwArgDef = ValDef(Modifiers(Flag.SYNTHETIC | Flag.PARAM), vwArgName, tupleOfXYtt, EmptyTree)
