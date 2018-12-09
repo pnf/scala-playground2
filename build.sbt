@@ -38,3 +38,14 @@ lazy val applicator = (project in file ("applicator")).settings (
   libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value withSources(),
   libraryDependencies += "org.scala-lang" % "scala-compiler" % scalaVersion.value withSources()
 )
+
+lazy val zio = (project in file ("zio")).settings(
+  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.7"),
+  libraryDependencies += "org.scalaz" %% "scalaz-zio" % "0.3.2"
+)
+
+lazy val add_profile = (project in file("add_profile")).enablePlugins(JmhPlugin).settings(
+  libraryDependencies ++= Seq(
+    "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.21"),
+  javaOptions ++= Seq("-XX:+UnlockDiagnosticVMOptions","-XX:CompileCommand=print,*SoFlow.test*")
+)
