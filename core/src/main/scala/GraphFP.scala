@@ -59,6 +59,13 @@ object GraphFP {
 
 
   object G {
+    /**
+      * Convenience method to build a graph out of a sequence of tuples.
+      * Each element is one of
+      *    (i, i, x)  - set value of vertex i to x
+      *    (i, j, x)  - set value of vertex i to x, and add dependency on j
+      *    (i, j)     - add dependency of i on j
+      */
     def apply[X](es: (VId, VId, Option[X])*): G[X] = {
       @tailrec def build(m: Map[VId, V[Option[X]]], rest: List[(VId, VId, Option[X])]): Map[VId, V[Option[X]]] = rest match {
         case (i, j, xo) :: rest ⇒
