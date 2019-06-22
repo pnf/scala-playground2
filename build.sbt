@@ -2,7 +2,7 @@ name := "scala-playground"
 
 version := "0.1"
 
-scalaVersion := "2.12.6"
+scalaVersion := "2.12.8"
 
 //addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.2.5-PNF-SNAPSHOT")
 
@@ -44,8 +44,23 @@ lazy val zio = (project in file ("zio")).settings(
   libraryDependencies += "org.scalaz" %% "scalaz-zio" % "0.3.2"
 )
 
-lazy val add_profile = (project in file("add_profile")).enablePlugins(JmhPlugin).settings(
-  libraryDependencies ++= Seq(
-    "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.21"),
+lazy val scala_async = (project in file ("scala_async")).settings(
+  libraryDependencies += "org.scala-lang.modules" %% "scala-async" % "0.9.7"
+)
+
+// in sbt,
+//  ++ 2.13.0!
+lazy val scala213 = (project in file ("scala213")). settings(
+  scalaVersion := "2.13.0",
+  libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value withSources(),
+  libraryDependencies += "org.scala-lang" % "scala-compiler" % scalaVersion.value withSources()
+)
+
+
+lazy val add_profile = (project in file("add_profile")).enablePlugins(JmhPlugin)
+
+/*.settings(
+  libraryDependencies ++= Seq( "org.openjdk.jmh" % "jmh-generator-annprocess" % "1.21"),
   javaOptions ++= Seq("-XX:+UnlockDiagnosticVMOptions","-XX:CompileCommand=print,*SoFlow.test*")
 )
+ */
