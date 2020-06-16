@@ -1,6 +1,5 @@
 package gotchas
 
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 import org.openjdk.jmh.annotations.{Benchmark, _}

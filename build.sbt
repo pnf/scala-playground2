@@ -48,7 +48,7 @@ lazy val scala_async = (project in file ("scala_async")).settings(
   libraryDependencies += "org.scala-lang.modules" %% "scala-async" % "0.9.7"
 )
 
-// in sbt,
+// when running in sbt directly,
 //  ++ 2.13.0!
 lazy val scala213 = (project in file ("scala213")). settings(
   scalaVersion := "2.13.0",
